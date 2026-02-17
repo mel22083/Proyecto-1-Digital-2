@@ -1,0 +1,365 @@
+/*
+ * Proyecto 1, Digital 2
+ *
+ * Created: 2/10/2026 10:09:51 AM
+ * Author : William Melgar Pineda
+ * Carnet : 22083
+ */ 
+
+// Librerias
+#define F_CPU 16000000UL
+#include <avr/io.h>
+#include <util/delay.h>
+#include <stdlib.h>
+
+#include "LCD.h"
+#include "I2C.h"
+#include "UART.h"
+
+#define slave1 0x30
+#define slave2 0x31
+#define AHT10 0x38
+
+#define slave1R ((0x30 << 1) | 0x01)
+#define slave1W ((0x30 << 1) | 0x00)
+
+#define slave2R ((0x31 << 1) | 0x01)
+#define slave2W ((0x31 << 1) | 0x00)
+
+#define AHT10_R ((0x38 << 1) | 0x01)
+#define AHT10_W ((0x38 << 1) | 0x00)
+
+
+
+uint8_t direccion;
+uint8_t buffer1;
+uint8_t buffer2;
+uint8_t a = 0;
+uint8_t b1, b2, b3;
+uint32_t peso_g = 0;
+uint8_t C0, C1, C2, C3, C4, C5 = 0;
+char bufferp[12];
+
+volatile uint8_t adafruta_1 = 0	;
+
+static void LCD_print1023(uint16_t x)
+{
+	LCD_caracter('0' + (x / 1000));        // miles
+	LCD_caracter('0' + ((x / 100) % 10));  // centenas
+	LCD_caracter('0' + ((x / 10) % 10));   // decenas
+	LCD_caracter('0' + (x % 10));          // unidades
+}
+
+int main(void)
+{
+	
+	DDRB |= (1 << PB2);   // PB2 como salida
+	PORTB &= ~(1 << PB2);
+	
+	DDRB |= (1 << PORTB5);
+	PORTB &= ~(1 << PORTB5);
+	
+	UART_init(103);
+	
+	I2C_MASTER_INIT(100000,1); // iniciarlo como master a 100kHz, Prescaler 1
+	
+	_delay_ms(50);
+	inicioLCD_8bits();
+	LCD_cursor(3,1);
+	LCD_cadena("S1:");
+	_delay_ms(500);
+	
+	LCD_cursor(8,1);
+	LCD_cadena("S2:");
+	_delay_ms(500);
+	
+	LCD_cursor(13,1);
+	LCD_cadena("S3:");
+	_delay_ms(500);
+	//PORTB |= (1 << PORTB2);
+	
+	uint8_t spepppeper = 255;
+	
+	while(1)
+	{
+		char c;
+		if (UART_rxCharNoBloqueo(&c))
+		{
+			if (c == '1') adafruta_1 = 1;
+			else if (c == '0') adafruta_1 = 0;
+		}
+		
+	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		if (!I2C_MASTER_START())
+		{
+			I2C_MASTER_STOP();
+			continue;
+		}
+		
+		if(!I2C_MASTER_WRITE(slave1W))
+		 {
+			 I2C_MASTER_STOP();
+			 continue;
+		}
+		if (!I2C_MASTER_WRITE('R'))
+		{
+			
+			I2C_MASTER_STOP();
+			continue;
+		}
+		if(!I2C_MASTER_REPEATEDSTART())
+		{
+			I2C_MASTER_STOP();
+			continue;
+		}
+		if(!I2C_MASTER_WRITE(slave1R))
+		{
+			I2C_MASTER_STOP();
+			continue;
+		}
+		if (!I2C_MASTER_READ(&a, 0))
+		{
+			I2C_MASTER_STOP();
+			continue;
+		}
+		
+		I2C_MASTER_STOP();
+		
+		_delay_ms(250);
+		
+		///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		
+		if (!I2C_MASTER_START())
+		{
+			I2C_MASTER_STOP();
+			continue;
+		}
+		
+		if(!I2C_MASTER_WRITE(slave2W))
+		{
+			I2C_MASTER_STOP();
+			continue;
+		}
+		if(!I2C_MASTER_REPEATEDSTART())
+		{
+			I2C_MASTER_STOP();
+			continue;
+		}
+		if(!I2C_MASTER_WRITE(slave2R))
+		{
+			I2C_MASTER_STOP();
+			continue;
+		}
+		if (!I2C_MASTER_READ(&b1, 1))
+		{
+			I2C_MASTER_STOP();
+			continue;
+		}
+		if (!I2C_MASTER_READ(&b2, 1))
+		{
+			I2C_MASTER_STOP();
+			continue;
+		}
+		if (!I2C_MASTER_READ(&b3, 0))
+		{
+			I2C_MASTER_STOP();
+			continue;
+		}
+		
+		I2C_MASTER_STOP();
+		
+		//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		
+		if (!I2C_MASTER_START())
+		{
+			I2C_MASTER_STOP();
+			continue;
+		}
+		
+		if(!I2C_MASTER_WRITE(AHT10_W))
+		{
+			I2C_MASTER_STOP();
+			continue;
+		}
+		
+		if (!I2C_MASTER_WRITE(0xAC)) 
+		{ 
+			I2C_MASTER_STOP(); 
+			continue; 
+		}
+		if (!I2C_MASTER_WRITE(0x33)) 
+		{
+			 I2C_MASTER_STOP();
+			  continue;
+		 }
+		if (!I2C_MASTER_WRITE(0x00))
+		{ 
+			I2C_MASTER_STOP();
+			continue; 
+		}
+		
+		I2C_MASTER_STOP();
+		
+		_delay_ms(90);
+			
+		if(!I2C_MASTER_START())
+		{
+			I2C_MASTER_STOP();
+			continue;
+		}
+		if(!I2C_MASTER_WRITE(AHT10_R))
+		{
+			I2C_MASTER_STOP();
+			continue;
+		}
+		// primer byte
+		if (!I2C_MASTER_READ(&C0, 1))
+		{
+			I2C_MASTER_STOP();
+			continue;
+		}
+		// segundo byte
+		if (!I2C_MASTER_READ(&C1, 1))
+		{
+			I2C_MASTER_STOP();
+			continue;
+		}
+		// tercer byte
+		if (!I2C_MASTER_READ(&C2, 1))
+		{
+			I2C_MASTER_STOP();
+			continue;
+		}
+		// cuarto byte
+		if (!I2C_MASTER_READ(&C3, 1))
+		{
+			I2C_MASTER_STOP();
+			continue;
+		}
+		// quinto byte
+		if (!I2C_MASTER_READ(&C4, 1))
+		{
+			I2C_MASTER_STOP();
+			continue;
+		}
+		// sexto byte
+		if (!I2C_MASTER_READ(&C5, 0))
+		{
+			I2C_MASTER_STOP();
+			continue;
+		}
+		
+		I2C_MASTER_STOP();
+		
+		///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		
+		
+		
+		////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////	
+		
+		LCD_cursor(2,2);
+		if (a) LCD_cadena("No ");
+		else   LCD_cadena("Si ");
+		
+		
+	uint32_t temp = ((uint32_t)b1 << 16) |
+	((uint32_t)b2 << 8)  |
+	(uint32_t)b3;
+
+	// Sign extend 24→32
+	if (temp & 0x800000UL)
+	temp |= 0xFF000000UL;
+
+	peso_g = (int32_t)temp;
+
+	itoa(peso_g, bufferp, 10);
+
+	LCD_cursor(7,2);
+	LCD_cadena("       ");   // limpiar más espacio
+	LCD_cursor(7,2);
+	LCD_cadena(bufferp);
+		
+		uint32_t S_RH = ((uint8_t) C1 << 12) | ((uint32_t) C2 << 4) | ((C3 & 0xF0) >> 4); 
+		uint8_t RH = (uint8_t)((S_RH*100UL) >> 20);
+		
+		LCD_cursor(13,2);
+		
+		if (RH >= 45)
+		{
+			LCD_cadena("WET ");
+		}
+		else
+		{
+			LCD_cadena("DRY ");
+		}
+		
+		static uint8_t motor_on = 0;
+		static uint8_t anterior_M = 0;
+		
+		if (!motor_on && RH >= 45) motor_on = 1;
+		if ( motor_on && RH <= 40) motor_on = 0;
+		
+		if (motor_on != anterior_M)
+		{
+			if (!I2C_MASTER_START())
+			{
+				I2C_MASTER_STOP();
+				continue;
+			}
+			
+			if(!I2C_MASTER_WRITE(slave2W))
+			{
+				I2C_MASTER_STOP();
+				continue;
+			}
+			
+			if (motor_on)
+			{
+				 if (!I2C_MASTER_WRITE('M')) { I2C_MASTER_STOP(); continue; }
+			}
+			else
+			{
+				if (!I2C_MASTER_WRITE('S')) { I2C_MASTER_STOP(); continue; }
+			}
+			
+			I2C_MASTER_STOP();
+			
+			anterior_M = motor_on;  
+		}
+		
+		uint8_t esteperon = 0;
+		
+		esteperon = (a == 0) || (adafruta_1 == 1);
+		
+		if (esteperon != spepppeper)
+		{
+			spepppeper = esteperon;
+		
+			if (!I2C_MASTER_START())
+			{
+				I2C_MASTER_STOP();
+				continue;
+			}
+			
+			if(!I2C_MASTER_WRITE(slave2W))
+			{
+				I2C_MASTER_STOP();
+				continue;
+			}
+			
+			if (esteperon)
+			{
+				if (!I2C_MASTER_WRITE('A')) { I2C_MASTER_STOP(); continue; }
+			}
+			else
+			{
+				if (!I2C_MASTER_WRITE('B')) { I2C_MASTER_STOP(); continue; }
+			}
+			
+			I2C_MASTER_STOP();
+		}
+		
+		_delay_ms(200);
+		
+	}
+}
